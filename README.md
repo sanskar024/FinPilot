@@ -1,6 +1,6 @@
 # FinPilot 💰
 
-**An AI financial copilot for small businesses** — a multi-agent system that reasons about cash flow, runway, forecasts, and financial risk, and answers plain-English questions about the numbers.
+**An AI financial  multi-agent system  copilot with built-in LLM evals and guardrails** — that reasons about cash flow, runway, forecasts, and financial risk, and answers plain-English questions about the numbers, with its own reasoning checked and constrained at every step.
 
 Built as a smaller, fully-understood version of a larger prior project — every agent, guardrail, and API call in this repo is real, tested, and traceable end-to-end.
 
@@ -129,4 +129,4 @@ finpilot/
 
 ## Author
 
-Built by [Eshu](https://linkedin.com/in/sanskar024) as a hands-on deep dive into multi-agent AI system design — every agent, guardrail, and integration in this repo was built and verified working end-to-end, not scaffolded and left unfinished.
+Built by [Sankar gupta](https://linkedin.com/in/sanskar024) as a hands-on deep dive into multi-agent AI system design — every agent, guardrail, and integration in this repo was built and verified working end-to-end, not scaffolded and left unfinished.
