@@ -1,108 +1,115 @@
-# FinPilot
+# FinPilot 💰
 
-An AI financial copilot for small businesses — 5 LangGraph agents (Cashflow,
-Runway, Forecast, Risk/Anomaly, and a CFO Chat orchestrator) sitting behind a
-Node/Express API, backed by PostgreSQL, with a Streamlit dashboard on top.
+**An AI financial copilot for small businesses** — a multi-agent system that reasons about cash flow, runway, forecasts, and financial risk, and answers plain-English questions about the numbers.
 
-See the full design doc for architecture, agent responsibilities, and the
-reasoning behind every stack choice. This file is just "how do I run it."
-
-Everything in this repo has been run and tested against real seeded data
-during development — not just written and assumed to work.
+Built as a smaller, fully-understood version of a larger prior project — every agent, guardrail, and API call in this repo is real, tested, and traceable end-to-end.
 
 ---
 
-## Option A: Run with Docker (recommended)
+## What it does
 
-Requires Docker and Docker Compose installed.
+- 📊 **Cash flow analysis** — inflows, outflows, burn rate, spend by category
+- 🛫 **Runway projection** — months of cash remaining, based on real transaction history (not a hardcoded balance)
+- 📈 **Forecasting** — a transparent linear-trend model for future weeks, with **backtesting** against real held-out data so accuracy is measured, not assumed
+- 🚨 **Anomaly detection** — flags unusual spending and missing/delayed revenue using explainable statistics (z-scores), not a black-box model
+- 💬 **Natural-language chat** — ask questions like *"can we afford to hire someone next month?"* and get an answer grounded in the actual data, with the reasoning shown, not hidden
+
+---
+
+## Architecture
+
+```
+Streamlit  →  Node.js/Express  →  FastAPI + LangGraph (5 agents)  →  PostgreSQL
+ (chat +        (API layer +          (Cashflow, Runway,
+ dashboard)      proxy)                Forecast, Risk,
+                                        CFO Chat orchestrator)
+```
+
+- **Streamlit** never talks to the database directly — everything goes through Node, so there's one clear entry point into the system.
+- **Node.js** owns writes (adding transactions); **FastAPI** owns reads-for-reasoning (every agent call).
+- The **CFO Chat Agent** is a real [LangGraph](https://github.com/langchain-ai/langgraph) state graph: guardrail check → route → call agents → synthesize → validate. Guardrails run *before* any agent or LLM call — a blocked question never touches the database.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Streamlit |
+| API layer | Node.js + Express |
+| Agent orchestration | Python + FastAPI + LangGraph |
+| Database | PostgreSQL + SQLAlchemy |
+| LLM (optional) | Pluggable — works with Anthropic or Gemini; falls back to a template-based answer if no key is set |
+
+---
+
+## Engineering practices this project demonstrates
+
+- ✅ **Tested** — 20 pytest unit tests + 11 Jest tests, all passing
+- ✅ **Evaluated** — an 18-question golden eval set scoring the orchestrator's routing and answer accuracy (18/18 passing)
+- ✅ **Guardrailed** — scope checking, prompt-injection input sanitization, and Pydantic output-schema validation, all wired in *before* the LLM is ever called
+- ✅ **Backtested forecasting** — predictions are checked against real held-out data, with mean absolute error reported
+- ✅ **No hardcoded financial data** — every number is computed live from the transaction history
+- ✅ **No secrets in the repo** — `.env.example` templates only; real credentials are git-ignored
+- ✅ **Containerized** — one `docker-compose up` runs the full stack
+
+---
+
+## Getting Started
+
+### Option A: Docker (recommended)
 
 ```bash
-# 1. (Optional) set an Anthropic API key for LLM-powered chat answers.
-#    Without it, the CFO Chat Agent still works — it falls back to a
-#    template-based summary of the agents' own explanations.
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# 2. Build and start everything
+git clone <this-repo>
+cd finpilot
 docker-compose up --build
-
-# 3. Seed the database (first run only, in a new terminal)
-docker-compose exec postgres psql -U finpilot_user -d finpilot -c "SELECT 1"  # sanity check it's up
-python data/generate_seed_data.py   # writes data/seed_transactions.csv
-DATABASE_URL=postgresql://finpilot_user:finpilot_pass@localhost:5432/finpilot python database/load_seed.py
 ```
 
-Then visit:
-- Dashboard: http://localhost:8501
-- Node API: http://localhost:4000/health
-- Agent service docs: http://localhost:8000/docs
+Then seed the database (first run only):
+```bash
+python data/generate_seed_data.py
+DATABASE_URL=<your-connection-string> python database/load_seed.py
+```
+
+Visit:
+- Dashboard → `http://localhost:8501`
+- API → `http://localhost:4000/health`
+- Agent service docs → `http://localhost:8000/docs`
+
+### Option B: Manual setup
+
+See [`SETUP.md`](./SETUP.md) for step-by-step instructions to run each service (database, agent service, Node API, dashboard) without Docker.
+
+### Configuration
+
+Copy `.env.example` → `.env` in both `agent-service/` and `node-api/`, and fill in:
+- `DATABASE_URL` — your PostgreSQL connection string
+- `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` *(optional)* — enables LLM-powered chat synthesis; without it, the CFO Chat Agent still works, using a template-based summary of the agents' own findings
 
 ---
 
-## Option B: Run manually (no Docker)
-
-Requires PostgreSQL, Python 3.12+, and Node 22+ installed locally.
-
-### 1. Database
+## Running the Tests & Evals
 
 ```bash
-# Create the database and user (adjust to your local Postgres setup)
-psql -c "CREATE USER finpilot_user WITH PASSWORD 'finpilot_pass';"
-psql -c "CREATE DATABASE finpilot OWNER finpilot_user;"
-
-# Apply the schema
-psql -h localhost -U finpilot_user -d finpilot -f database/schema.sql
-```
-
-### 2. Seed data
-
-```bash
-cd data
-python generate_seed_data.py       # writes seed_transactions.csv
-
-cd ../database
-cp .env.example .env               # fill in DATABASE_URL
-pip install psycopg2-binary python-dotenv
-python load_seed.py
-```
-
-### 3. Agent service (Python/FastAPI)
-
-```bash
+# Python agent tests
 cd agent-service
-cp .env.example .env               # fill in DATABASE_URL
-pip install -r requirements.txt
-uvicorn app:app --reload --port 8000
-```
-
-Run the tests and evals:
-```bash
 pytest tests/ -v
+
+# Eval suite (checks the orchestrator's routing + answer accuracy)
 python -m evals.run_evals
-```
 
-### 4. Node API
-
-```bash
+# Node API tests
 cd node-api
-cp .env.example .env               # fill in DATABASE_URL and AGENT_SERVICE_URL
-npm install
-npm start
-```
-
-Run the tests:
-```bash
 npm test
 ```
 
-### 5. Dashboard (Streamlit)
+---
 
-```bash
-cd dashboard
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
+## Known Limitations
 
-Visit http://localhost:8501
+- The forecast uses a simple linear trend, not ARIMA/Prophet — a deliberate choice for explainability
+- Seed data is synthetic and historical; agents anchor on the latest transaction date in the data, not the live system clock
+- No authentication/multi-tenancy — this is a single-org demo, not production-ready for multiple users
 
 ---
 
@@ -113,26 +120,13 @@ finpilot/
 ├── node-api/          # Express API — transaction/org CRUD + proxy to agent-service
 ├── agent-service/      # FastAPI + LangGraph — the 5 agents, guardrails, evals, tests
 ├── dashboard/          # Streamlit — charts + chat UI
-├── database/           # schema.sql + load_seed.py
-├── data/                # generate_seed_data.py + generated CSV
+├── database/            # schema.sql + seed loader
+├── data/                 # synthetic data generator
 └── docker-compose.yml
 ```
 
-See each folder for its own logic; the design doc covers why it's structured
-this way.
+---
 
-## Known Limitations (being upfront, since this matters for how you present it)
+## Author
 
-- The Forecast Agent uses a simple linear trend, not a "real" time-series
-  model (ARIMA/Prophet/etc.) — that's a deliberate choice for explainability,
-  not an oversight, but worth saying out loud if asked.
-- The CFO Chat Agent's LLM synthesis step requires `ANTHROPIC_API_KEY` to be
-  set; without it, answers are template-based summaries of the agents' raw
-  output rather than natural-language synthesis.
-- Seed data is synthetic and historical (dated March–August 2026) — agents
-  anchor on the latest transaction date in the data, not the real current
-  date, since this isn't a live feed.
-- No authentication/multi-tenancy — `org_id` is passed directly with no
-  access control, which is fine for a single-user demo but would need
-  addressing before any real multi-user use.
-"# FinPilot" 
+Built by [Eshu](https://linkedin.com/in/sanskar024) as a hands-on deep dive into multi-agent AI system design — every agent, guardrail, and integration in this repo was built and verified working end-to-end, not scaffolded and left unfinished.
