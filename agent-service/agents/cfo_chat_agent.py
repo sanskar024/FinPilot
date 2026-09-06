@@ -135,10 +135,10 @@ def _llm_synthesis(state: ChatState) -> str | None:
         )
         response = model.generate_content(prompt)
         return response.text
-    except Exception:
+    except Exception as e:
+        print(f"Gemini call failed: {e}")
         return None
-
-
+    
 def synthesize(state: ChatState) -> ChatState:
     llm_answer = _llm_synthesis(state)
     if llm_answer:
