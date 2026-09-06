@@ -1,0 +1,57 @@
+date,amount,type,category,description
+2026-03-01,380000.0,outflow,payroll,Monthly payroll run
+2026-03-02,60000,outflow,rent,Office rent
+2026-03-03,22418.28,outflow,software,SaaS subscriptions bundle
+2026-03-05,540000.0,inflow,revenue,Client invoice payment - Batch A
+2026-03-06,37246.51,outflow,marketing,Ad spend / campaign cost
+2026-03-09,35300.98,outflow,marketing,Ad spend / campaign cost
+2026-03-13,21696.32,outflow,marketing,Ad spend / campaign cost
+2026-03-20,360000.0,inflow,revenue,Client invoice payment - Batch B
+2026-03-23,8869.39,outflow,supplies,Office & operational supplies
+2026-04-01,387600.0,outflow,payroll,Monthly payroll run
+2026-04-02,60000,outflow,rent,Office rent
+2026-04-03,21765.77,outflow,software,SaaS subscriptions bundle
+2026-04-05,561600.0,inflow,revenue,Client invoice payment - Batch A
+2026-04-06,17810.86,outflow,marketing,Ad spend / campaign cost
+2026-04-06,31837.35,outflow,marketing,Ad spend / campaign cost
+2026-04-13,30160.66,outflow,marketing,Ad spend / campaign cost
+2026-04-20,374400.0,inflow,revenue,Client invoice payment - Batch B
+2026-04-23,12195.2,outflow,supplies,Office & operational supplies
+2026-05-01,395352.0,outflow,payroll,Monthly payroll run
+2026-05-02,60000,outflow,rent,Office rent
+2026-05-03,21847.63,outflow,software,SaaS subscriptions bundle
+2026-05-05,584064.0,inflow,revenue,Client invoice payment - Batch A
+2026-05-06,37764.22,outflow,marketing,Ad spend / campaign cost
+2026-05-11,35944.18,outflow,marketing,Ad spend / campaign cost
+2026-05-14,39282.91,outflow,marketing,Ad spend / campaign cost
+2026-05-16,10778.71,outflow,supplies,Office & operational supplies
+2026-05-20,389376.0,inflow,revenue,Client invoice payment - Batch B
+2026-06-01,403259.04,outflow,payroll,Monthly payroll run
+2026-06-02,60000,outflow,rent,Office rent
+2026-06-03,21145.94,outflow,software,SaaS subscriptions bundle
+2026-06-07,15297.32,outflow,supplies,Office & operational supplies
+2026-06-16,18066.31,outflow,marketing,Ad spend / campaign cost
+2026-06-17,33111.78,outflow,marketing,Ad spend / campaign cost
+2026-06-18,17901.49,outflow,marketing,Ad spend / campaign cost
+2026-06-25,303713.28,inflow,revenue,"Client invoice payment (partial, severely delayed)"
+2026-07-01,411324.22,outflow,payroll,Monthly payroll run
+2026-07-02,60000,outflow,rent,Office rent
+2026-07-03,22108.68,outflow,software,SaaS subscriptions bundle
+2026-07-05,631723.62,inflow,revenue,Client invoice payment - Batch A
+2026-07-08,8458.24,outflow,supplies,Office & operational supplies
+2026-07-15,39882.14,outflow,marketing,Ad spend / campaign cost
+2026-07-15,210000,outflow,equipment,Emergency server hardware replacement
+2026-07-17,32320.56,outflow,marketing,Ad spend / campaign cost
+2026-07-18,17364.01,outflow,marketing,Ad spend / campaign cost
+2026-07-20,421149.08,inflow,revenue,Client invoice payment - Batch B
+2026-08-01,419550.71,outflow,payroll,Monthly payroll run
+2026-08-02,60000,outflow,rent,Office rent
+2026-08-03,21183.69,outflow,software,SaaS subscriptions bundle
+2026-08-05,656992.57,inflow,revenue,Client invoice payment - Batch A
+2026-08-10,95000,outflow,payroll,New hire - signing bonus + first partial month salary
+2026-08-13,40994.51,outflow,marketing,Ad spend / campaign cost
+2026-08-15,44556.65,outflow,marketing,Ad spend / campaign cost
+2026-08-17,9626.54,outflow,supplies,Office & operational supplies
+2026-08-18,23339.21,outflow,marketing,Ad spend / campaign cost
+2026-08-18,60000,outflow,marketing,Increased ad spend push
+2026-08-20,437995.04,inflow,revenue,Client invoice payment - Batch B

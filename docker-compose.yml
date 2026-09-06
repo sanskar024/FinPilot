@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: finpilot_user
+      POSTGRES_PASSWORD: finpilot_pass
+      POSTGRES_DB: finpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finpilot_user -d finpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  agent-service:
+    build: ./agent-service
+    environment:
+      DATABASE_URL: postgresql://finpilot_user:finpilot_pass@postgres:5432/finpilot
+      ALLOWED_ORIGINS: http://node-api:4000
+      # Optional: set ANTHROPIC_API_KEY to enable LLM-powered chat answers.
+      # Without it, the CFO Chat Agent falls back to a template-based
+      # summary of the agents' own explanations — no fabricated answers.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  node-api:
+    build: ./node-api
+    environment:
+      DATABASE_URL: postgresql://finpilot_user:finpilot_pass@postgres:5432/finpilot
+      PORT: 4000
+      AGENT_SERVICE_URL: http://agent-service:8000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agent-service:
+        condition: service_started
+
+  dashboard:
+    build: ./dashboard
+    environment:
+      NODE_API_URL: http://node-api:4000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - node-api
+
+volumes:
+  pgdata:
