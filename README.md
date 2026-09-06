@@ -2,8 +2,6 @@
 
 **An AI financial  multi-agent system  copilot with built-in LLM evals and guardrails** — that reasons about cash flow, runway, forecasts, and financial risk, and answers plain-English questions about the numbers, with its own reasoning checked and constrained at every step.
 
-Built as a smaller, fully-understood version of a larger prior project — every agent, guardrail, and API call in this repo is real, tested, and traceable end-to-end.
-
 ---
 
 ## What it does
