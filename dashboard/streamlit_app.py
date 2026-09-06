@@ -21,7 +21,7 @@ st.title("💰 FinPilot — AI Financial Copilot")
 
 def get(path, params=None):
     try:
-        resp = requests.get(f"{NODE_API_URL}{path}", params=params, timeout=10)
+        resp = requests.get(f"{NODE_API_URL}{path}", params=params, timeout=60)
         resp.raise_for_status()
         return resp.json(), None
     except requests.exceptions.RequestException as e:
@@ -30,7 +30,7 @@ def get(path, params=None):
 
 def post(path, json=None):
     try:
-        resp = requests.post(f"{NODE_API_URL}{path}", json=json, timeout=15)
+        resp = requests.post(f"{NODE_API_URL}{path}", json=json, timeout=90)
         resp.raise_for_status()
         return resp.json(), None
     except requests.exceptions.RequestException as e:
@@ -39,7 +39,53 @@ def post(path, json=None):
 
 org_id = st.sidebar.number_input("Organization ID", min_value=1, value=DEFAULT_ORG_ID, step=1)
 
-tab_dashboard, tab_chat = st.tabs(["📊 Dashboard", "💬 Ask the CFO"])
+VALID_TYPES = {"inflow", "outflow"}
+REQUIRED_COLUMNS = {"date", "amount", "type", "category"}
+
+
+def validate_import_df(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Pure function: validates an uploaded transactions dataframe against the
+    same rules the Node API enforces (kept in sync deliberately — this is a
+    client-side pre-check, not a replacement for server-side validation,
+    which still runs on every row when it's actually posted).
+
+    Returns (valid_rows_df, list_of_error_messages_for_invalid_rows).
+    """
+    errors = []
+    missing_cols = REQUIRED_COLUMNS - set(df.columns)
+    if missing_cols:
+        errors.append(f"Missing required column(s): {', '.join(sorted(missing_cols))}")
+        return df.iloc[0:0], errors
+
+    valid_mask = pd.Series(True, index=df.index)
+
+    dates_parsed = pd.to_datetime(df["date"], errors="coerce")
+    bad_dates = dates_parsed.isna()
+    for idx in df.index[bad_dates]:
+        errors.append(f"Row {idx + 2}: invalid date '{df.loc[idx, 'date']}'")
+    valid_mask &= ~bad_dates
+
+    amounts_numeric = pd.to_numeric(df["amount"], errors="coerce")
+    bad_amounts = amounts_numeric.isna() | (amounts_numeric <= 0)
+    for idx in df.index[bad_amounts]:
+        errors.append(f"Row {idx + 2}: amount must be a positive number, got '{df.loc[idx, 'amount']}'")
+    valid_mask &= ~bad_amounts
+
+    bad_types = ~df["type"].isin(VALID_TYPES)
+    for idx in df.index[bad_types]:
+        errors.append(f"Row {idx + 2}: type must be 'inflow' or 'outflow', got '{df.loc[idx, 'type']}'")
+    valid_mask &= ~bad_types
+
+    bad_category = df["category"].isna() | (df["category"].astype(str).str.strip() == "")
+    for idx in df.index[bad_category]:
+        errors.append(f"Row {idx + 2}: category is required")
+    valid_mask &= ~bad_category
+
+    return df[valid_mask], errors
+
+
+tab_dashboard, tab_chat, tab_import = st.tabs(["📊 Dashboard", "💬 Ask the CFO", "📥 Import Data"])
 
 # ---------------------------------------------------------------------------
 # Dashboard tab
@@ -155,3 +201,110 @@ with tab_chat:
                         "reasoning": result["reasoning"],
                     }
                 )
+
+# ---------------------------------------------------------------------------
+# Import Data tab
+# ---------------------------------------------------------------------------
+with tab_import:
+    st.subheader("Import your own transaction data")
+    st.caption(
+        "Upload a CSV to load a real company's transactions instead of the demo data. "
+        "Required columns: date, amount, type (inflow/outflow), category. "
+        "Description is optional."
+    )
+
+    st.markdown("**Step 1 — Choose or create an organization**")
+    org_choice = st.radio(
+        "Import into",
+        ["Use the Organization ID from the sidebar", "Create a new organization"],
+        horizontal=True,
+    )
+
+    target_org_id = org_id
+    if org_choice == "Create a new organization":
+        new_org_name = st.text_input("New organization name")
+        if st.button("Create organization"):
+            if not new_org_name.strip():
+                st.error("Organization name can't be empty.")
+            else:
+                result, err = post("/api/organizations", {"name": new_org_name.strip()})
+                if err:
+                    st.error(f"Could not create organization: {err}")
+                else:
+                    st.success(f"Created organization '{result['name']}' with ID {result['id']}. "
+                               f"Set the sidebar's Organization ID to {result['id']} to use it.")
+
+    st.divider()
+    st.markdown("**Step 2 — Upload your CSV**")
+
+    with st.expander("Show expected CSV format"):
+        st.code(
+            "date,amount,type,category,description\n"
+            "2026-01-05,50000,inflow,revenue,Client payment\n"
+            "2026-01-10,15000,outflow,rent,Office rent",
+            language="csv",
+        )
+
+    uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+
+    if uploaded_file is not None:
+        try:
+            raw_df = pd.read_csv(uploaded_file)
+        except Exception as e:
+            st.error(f"Could not read this file as CSV: {e}")
+            raw_df = None
+
+        if raw_df is not None:
+            valid_df, errors = validate_import_df(raw_df)
+
+            st.write(f"**{len(valid_df)} of {len(raw_df)} rows are valid.**")
+
+            if errors:
+                with st.expander(f"⚠️ {len(errors)} row(s) will be skipped — click to see why"):
+                    for e in errors:
+                        st.text(e)
+
+            if not valid_df.empty:
+                st.dataframe(valid_df.head(20))
+                if len(valid_df) > 20:
+                    st.caption(f"...and {len(valid_df) - 20} more rows")
+
+                st.markdown("**Step 3 — Import**")
+                st.warning(
+                    f"This will add {len(valid_df)} transaction(s) to Organization ID {target_org_id}. "
+                    "This does not overwrite existing data — it adds to it."
+                )
+
+                if st.button(f"Import {len(valid_df)} transactions to Org {target_org_id}", type="primary"):
+                    progress = st.progress(0, text="Starting import...")
+                    succeeded = 0
+                    failed = []
+
+                    for i, (_, row) in enumerate(valid_df.iterrows()):
+                        payload = {
+                            "org_id": int(target_org_id),
+                            "date": str(pd.to_datetime(row["date"]).date()),
+                            "amount": float(row["amount"]),
+                            "type": row["type"],
+                            "category": str(row["category"]),
+                        }
+                        if "description" in row and pd.notna(row.get("description")):
+                            payload["description"] = str(row["description"])
+
+                        _, err = post("/api/transactions", payload)
+                        if err:
+                            failed.append((i + 2, err))
+                        else:
+                            succeeded += 1
+
+                        progress.progress(
+                            (i + 1) / len(valid_df),
+                            text=f"Imported {i + 1} of {len(valid_df)}...",
+                        )
+
+                    progress.empty()
+                    st.success(f"Imported {succeeded} of {len(valid_df)} transactions successfully.")
+                    if failed:
+                        with st.expander(f"⚠️ {len(failed)} row(s) failed during import"):
+                            for row_num, err in failed:
+                                st.text(f"Row {row_num}: {err}")
