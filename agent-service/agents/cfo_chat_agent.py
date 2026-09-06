@@ -124,7 +124,7 @@ def _llm_synthesis(state: ChatState) -> str | None:
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-3.6-flash")
 
         prompt = (
             "You are a CFO copilot. Answer the user's question using ONLY the data below. "
