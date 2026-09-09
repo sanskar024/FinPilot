@@ -37,6 +37,11 @@ services:
       DATABASE_URL: postgresql://finpilot_user:finpilot_pass@postgres:5432/finpilot
       PORT: 4000
       AGENT_SERVICE_URL: http://agent-service:8000
+      # REQUIRED — the app will not start without this. Set a real value
+      # via `export JWT_SECRET=$(openssl rand -hex 32)` before `docker-compose up`;
+      # never commit a real value here.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set — see README}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
     ports:
       - "4000:4000"
     depends_on:

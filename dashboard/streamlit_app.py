@@ -4,6 +4,13 @@ directly to Postgres or the Python agent service (see README architecture).
 
 Run with: streamlit run streamlit_app.py
 Requires NODE_API_URL env var (defaults to http://localhost:4000).
+
+Authentication: the dashboard does NOT let the user pick an organization
+ID — that would defeat the entire point of the backend's authorization
+model. Instead, the user logs in, Node returns a JWT containing their
+organization_id, and every subsequent request carries that JWT. The
+organization shown is always whichever one the JWT says, never a value
+typed into a text box.
 """
 
 import os
@@ -13,15 +20,21 @@ import requests
 import streamlit as st
 
 NODE_API_URL = os.getenv("NODE_API_URL", "http://localhost:4000")
-DEFAULT_ORG_ID = 1
 
 st.set_page_config(page_title="FinPilot", page_icon="💰", layout="wide")
-st.title("💰 FinPilot — AI Financial Copilot")
+
+
+def auth_headers():
+    token = st.session_state.get("token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def get(path, params=None):
     try:
-        resp = requests.get(f"{NODE_API_URL}{path}", params=params, timeout=60)
+        resp = requests.get(f"{NODE_API_URL}{path}", params=params, headers=auth_headers(), timeout=60)
+        if resp.status_code == 401:
+            _force_logout("Your session has expired — please log in again.")
+            return None, "Session expired"
         resp.raise_for_status()
         return resp.json(), None
     except requests.exceptions.RequestException as e:
@@ -30,14 +43,75 @@ def get(path, params=None):
 
 def post(path, json=None):
     try:
-        resp = requests.post(f"{NODE_API_URL}{path}", json=json, timeout=90)
+        resp = requests.post(f"{NODE_API_URL}{path}", json=json, headers=auth_headers(), timeout=90)
+        if resp.status_code == 401:
+            _force_logout("Your session has expired — please log in again.")
+            return None, "Session expired"
         resp.raise_for_status()
         return resp.json(), None
     except requests.exceptions.RequestException as e:
         return None, str(e)
 
 
-org_id = st.sidebar.number_input("Organization ID", min_value=1, value=DEFAULT_ORG_ID, step=1)
+def _force_logout(message):
+    st.session_state.pop("token", None)
+    st.session_state.pop("user", None)
+    st.session_state["logout_message"] = message
+
+
+# ---------------------------------------------------------------------------
+# Login gate — nothing below this renders until a valid JWT is in session
+# ---------------------------------------------------------------------------
+if "token" not in st.session_state:
+    st.title("💰 FinPilot — AI Financial Copilot")
+
+    if st.session_state.get("logout_message"):
+        st.warning(st.session_state.pop("logout_message"))
+
+    st.subheader("Log in")
+
+    with st.form("login_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in")
+
+    if submitted:
+        try:
+            resp = requests.post(
+                f"{NODE_API_URL}/api/auth/login",
+                json={"email": email, "password": password},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                st.session_state["token"] = data["token"]
+                st.session_state["user"] = data["user"]
+                st.rerun()
+            else:
+                st.error("Invalid email or password.")
+        except requests.exceptions.RequestException as e:
+            st.error(f"Could not reach the login service: {e}")
+
+    st.caption(
+        "Don't have an account? Ask your organization's admin to register you, "
+        "or see SETUP.md for how to bootstrap the first organization."
+    )
+    st.stop()  # nothing past this point runs until logged in
+
+
+# ---------------------------------------------------------------------------
+# Logged in — everything below runs with a valid JWT in session
+# ---------------------------------------------------------------------------
+user = st.session_state["user"]
+
+st.sidebar.success(f"Logged in as {user['email']}")
+st.sidebar.caption(f"Organization ID: {user['organizationId']} · Role: {user['role']}")
+if st.sidebar.button("Log out"):
+    st.session_state.pop("token", None)
+    st.session_state.pop("user", None)
+    st.rerun()
+
+st.title("💰 FinPilot — AI Financial Copilot")
 
 VALID_TYPES = {"inflow", "outflow"}
 REQUIRED_COLUMNS = {"date", "amount", "type", "category"}
@@ -88,14 +162,16 @@ def validate_import_df(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
 tab_dashboard, tab_chat, tab_import = st.tabs(["📊 Dashboard", "💬 Ask the CFO", "📥 Import Data"])
 
 # ---------------------------------------------------------------------------
-# Dashboard tab
+# Dashboard tab — every call below sends NO org_id at all. The Node API
+# derives it entirely from the JWT in auth_headers(). There is nothing
+# for this UI to get wrong here even if it tried.
 # ---------------------------------------------------------------------------
 with tab_dashboard:
     col1, col2 = st.columns(2)
 
     with col1:
         st.subheader("Cash Flow (current period)")
-        cashflow, err = get("/api/cfo/cashflow", {"org_id": org_id})
+        cashflow, err = get("/api/cfo/cashflow")
         if err:
             st.error(f"Could not load cashflow: {err}")
         elif cashflow:
@@ -114,7 +190,7 @@ with tab_dashboard:
 
     with col2:
         st.subheader("Runway")
-        runway, err = get("/api/cfo/runway", {"org_id": org_id})
+        runway, err = get("/api/cfo/runway")
         if err:
             st.error(f"Could not load runway: {err}")
         elif runway:
@@ -129,7 +205,7 @@ with tab_dashboard:
     st.divider()
 
     st.subheader("Forecast — next few weeks")
-    forecast, err = get("/api/cfo/forecast", {"org_id": org_id})
+    forecast, err = get("/api/cfo/forecast")
     if err:
         st.error(f"Could not load forecast: {err}")
     elif forecast:
@@ -139,8 +215,6 @@ with tab_dashboard:
             st.line_chart(forecast_df.set_index("week_start")["predicted_net_cashflow"])
         st.caption(forecast["explanation"])
 
-        # Backtest chart — predicted vs actual, so the forecast's accuracy
-        # is visible, not just asserted (README point #2).
         backtest = forecast.get("backtest", {})
         if backtest.get("comparison"):
             st.markdown("**Forecast backtest — predicted vs. actual (held-out weeks)**")
@@ -152,7 +226,7 @@ with tab_dashboard:
     st.divider()
 
     st.subheader("Risk / Anomalies")
-    risk, err = get("/api/cfo/risk", {"org_id": org_id})
+    risk, err = get("/api/cfo/risk")
     if err:
         st.error(f"Could not load risk data: {err}")
     elif risk:
@@ -187,7 +261,9 @@ with tab_chat:
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                result, err = post("/api/cfo/ask", {"org_id": org_id, "question": question})
+                # Note: no org_id sent here at all — the question alone.
+                # Node attaches the authenticated org_id server-side.
+                result, err = post("/api/cfo/ask", {"question": question})
             if err:
                 st.error(f"Could not reach the CFO agent: {err}")
             else:
@@ -203,39 +279,19 @@ with tab_chat:
                 )
 
 # ---------------------------------------------------------------------------
-# Import Data tab
+# Import Data tab — imports always land in the logged-in user's own
+# organization. There is no org selector here anymore; the "create a new
+# organization" flow that used to exist was removed because organization
+# creation is now an admin-only, separate action (see SETUP.md for the
+# bootstrap script) — mixing "upload my data" with "spin up a new tenant"
+# in the same screen doesn't fit a real multi-tenant auth model.
 # ---------------------------------------------------------------------------
 with tab_import:
     st.subheader("Import your own transaction data")
     st.caption(
-        "Upload a CSV to load a real company's transactions instead of the demo data. "
-        "Required columns: date, amount, type (inflow/outflow), category. "
-        "Description is optional."
+        f"Upload a CSV to add transactions to your organization (ID {user['organizationId']}). "
+        "Required columns: date, amount, type (inflow/outflow), category. Description is optional."
     )
-
-    st.markdown("**Step 1 — Choose or create an organization**")
-    org_choice = st.radio(
-        "Import into",
-        ["Use the Organization ID from the sidebar", "Create a new organization"],
-        horizontal=True,
-    )
-
-    target_org_id = org_id
-    if org_choice == "Create a new organization":
-        new_org_name = st.text_input("New organization name")
-        if st.button("Create organization"):
-            if not new_org_name.strip():
-                st.error("Organization name can't be empty.")
-            else:
-                result, err = post("/api/organizations", {"name": new_org_name.strip()})
-                if err:
-                    st.error(f"Could not create organization: {err}")
-                else:
-                    st.success(f"Created organization '{result['name']}' with ID {result['id']}. "
-                               f"Set the sidebar's Organization ID to {result['id']} to use it.")
-
-    st.divider()
-    st.markdown("**Step 2 — Upload your CSV**")
 
     with st.expander("Show expected CSV format"):
         st.code(
@@ -269,20 +325,21 @@ with tab_import:
                 if len(valid_df) > 20:
                     st.caption(f"...and {len(valid_df) - 20} more rows")
 
-                st.markdown("**Step 3 — Import**")
                 st.warning(
-                    f"This will add {len(valid_df)} transaction(s) to Organization ID {target_org_id}. "
-                    "This does not overwrite existing data — it adds to it."
+                    f"This will add {len(valid_df)} transaction(s) to your organization "
+                    f"(ID {user['organizationId']}). This does not overwrite existing data — it adds to it."
                 )
 
-                if st.button(f"Import {len(valid_df)} transactions to Org {target_org_id}", type="primary"):
+                if st.button(f"Import {len(valid_df)} transactions", type="primary"):
                     progress = st.progress(0, text="Starting import...")
                     succeeded = 0
                     failed = []
 
                     for i, (_, row) in enumerate(valid_df.iterrows()):
+                        # No org_id in this payload at all — Node derives it
+                        # from the JWT. Even if something upstream injected
+                        # one, routes/transactions.js on the server ignores it.
                         payload = {
-                            "org_id": int(target_org_id),
                             "date": str(pd.to_datetime(row["date"]).date()),
                             "amount": float(row["amount"]),
                             "type": row["type"],
