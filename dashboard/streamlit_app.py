@@ -111,7 +111,7 @@ if st.sidebar.button("Log out"):
     st.session_state.pop("user", None)
     st.rerun()
 
-st.title("💰 FinPilot — AI Financial Copilot")
+st.title(" FinPilot — AI Financial Copilot")
 
 VALID_TYPES = {"inflow", "outflow"}
 REQUIRED_COLUMNS = {"date", "amount", "type", "category"}
