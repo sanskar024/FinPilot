@@ -26,7 +26,7 @@ st.set_page_config(page_title="FinPilot", page_icon="💰", layout="wide")
 
 def auth_headers():
     token = st.session_state.get("token")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+    return {"Authorization": f"Bearer {token}"} if token else {print ("No token in session state") or {}}
 
 
 def get(path, params=None):
