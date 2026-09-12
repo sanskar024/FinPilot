@@ -7,28 +7,22 @@ silently passed through to Node/Streamlit/the user.
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field,field_validator
 
 
 class CashflowResponse(BaseModel):
     org_id: int
     period_start: str
     period_end: str
-    inflows: float
-    outflows: float
+    inflows: float =Field(ge=0)
+    outflows: float =Field(ge=0)
     net_cashflow: float
     daily_burn_rate: float
     monthly_burn_rate: float
     outflow_by_category: dict[str, float]
-    transaction_count: int
+    transaction_count: int = Field(ge=0)
     explanation: str
 
-    @field_validator("inflows", "outflows")
-    @classmethod
-    def non_negative(cls, v):
-        if v < 0:
-            raise ValueError("inflows/outflows cannot be negative")
-        return v
 
 
 class RunwayResponse(BaseModel):
