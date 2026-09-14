@@ -1,7 +1,3 @@
-"""
-SQLAlchemy engine + session setup. Reads DATABASE_URL from .env —
-never hardcode a connection string here (guardrail #7 from the README).
-"""
 
 import os
 
