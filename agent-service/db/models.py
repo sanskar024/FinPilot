@@ -1,7 +1,4 @@
-"""
-SQLAlchemy models — mirror database/schema.sql exactly.
-These are read-only from the agent service's point of view; Node owns writes.
-"""
+
 
 from sqlalchemy import (
     Column,
