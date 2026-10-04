@@ -140,6 +140,14 @@ def _force_logout(message):
     st.session_state["logout_message"] = message
 
 
+def _start_session(data, demo=False):
+    st.session_state["token"] = data["token"]
+    st.session_state["user"] = data["user"]
+    st.session_state["is_demo"] = demo
+    st.session_state["view"] = "Overview"
+    st.rerun()
+
+
 def _login(email, password, demo=False):
     try:
         resp = requests.post(
@@ -148,17 +156,56 @@ def _login(email, password, demo=False):
             timeout=60,
         )
         if resp.status_code == 200:
-            data = resp.json()
-            st.session_state["token"] = data["token"]
-            st.session_state["user"] = data["user"]
-            st.session_state["is_demo"] = demo
-            st.rerun()
+            _start_session(resp.json(), demo)
         elif resp.status_code == 401:
             st.error("Wrong email or password. Check them and try again.")
         else:
             st.error(f"Login failed (HTTP {resp.status_code} from {NODE_API_URL}).")
     except requests.exceptions.RequestException as e:
         st.error(f"Couldn't reach the login service. It may still be waking up, so try again in a minute. ({e})")
+
+
+def _signup(company, email, password, confirm):
+    problems = []
+    if not company.strip():
+        problems.append("Enter your company name.")
+    local, _, domain = email.strip().partition("@")
+    if not local or "." not in domain:
+        problems.append("Enter a valid email address.")
+    if len(password) < 8:
+        problems.append("Use a password with at least 8 characters.")
+    elif password != confirm:
+        problems.append("The two passwords don't match.")
+    if problems:
+        for msg in problems:
+            st.error(msg)
+        return
+
+    try:
+        resp = requests.post(
+            f"{NODE_API_URL}/api/auth/signup",
+            json={"organization_name": company.strip(), "email": email.strip(), "password": password},
+            timeout=60,
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        if resp.status_code == 201:
+            _start_session(body)
+        elif resp.status_code in (400, 409):
+            for msg in body.get("errors", ["We couldn't create the account. Check your details and try again."]):
+                st.error(msg)
+        elif resp.status_code == 429:
+            st.error(body.get("error", "Too many sign-ups right now. Try again later."))
+        else:
+            st.error(f"Sign-up failed (HTTP {resp.status_code}). Try again in a moment.")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Couldn't reach the sign-up service. It may still be waking up, so try again in a minute. ({e})")
+
+
+def _go_import():
+    st.session_state["view"] = "Import data"
 
 
 BRAND_HTML = '<div class="brand"><span class="brand-mark">F</span>FinPilot</div>'
@@ -171,34 +218,49 @@ if "token" not in st.session_state:
     _, center, _ = st.columns([1, 1.3, 1])
     with center:
         st.markdown(BRAND_HTML, unsafe_allow_html=True)
-        st.markdown('<div class="login-title">Welcome back</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="login-sub">Sign in to see your cash flow, runway and forecast.</div>',
-            unsafe_allow_html=True,
-        )
 
         if st.session_state.get("logout_message"):
             st.warning(st.session_state.pop("logout_message"))
 
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Log in")
+        tab_login, tab_signup = st.tabs(["Log in", "Create account"])
 
-        if submitted:
-            _login(email.strip(), password)
+        with tab_login:
+            st.markdown('<div class="login-title">Welcome back</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="login-sub">Sign in to see your cash flow, runway and forecast.</div>',
+                unsafe_allow_html=True,
+            )
+            with st.form("login_form"):
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Log in")
 
-        if DEMO_EMAIL and DEMO_PASSWORD:
-            st.markdown("&nbsp;", unsafe_allow_html=True)
-            st.caption("Just looking around? Explore with sample data. No account needed.")
-            if st.button("Continue without login (demo)"):
-                with st.spinner("Starting the demo. The first load can take a minute."):
-                    _login(DEMO_EMAIL, DEMO_PASSWORD, demo=True)
+            if submitted:
+                _login(email.strip(), password)
 
-        st.caption(
-            "Need an account? Ask your organization's admin to register you, "
-            "or see SETUP.md for how to bootstrap the first organization."
-        )
+            if DEMO_EMAIL and DEMO_PASSWORD:
+                st.markdown("&nbsp;", unsafe_allow_html=True)
+                st.caption("Just looking around? Explore with sample data. No account needed.")
+                if st.button("Continue without login (demo)"):
+                    with st.spinner("Starting the demo. The first load can take a minute."):
+                        _login(DEMO_EMAIL, DEMO_PASSWORD, demo=True)
+
+        with tab_signup:
+            st.markdown('<div class="login-title">Create your account</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="login-sub">You get your own private workspace. Import a CSV of transactions to see your numbers.</div>',
+                unsafe_allow_html=True,
+            )
+            with st.form("signup_form"):
+                su_company = st.text_input("Company name")
+                su_email = st.text_input("Work email")
+                su_password = st.text_input("Password (8+ characters)", type="password")
+                su_confirm = st.text_input("Confirm password", type="password")
+                su_submitted = st.form_submit_button("Create account")
+
+            if su_submitted:
+                with st.spinner("Creating your workspace. The first request can take a minute."):
+                    _signup(su_company, su_email, su_password, su_confirm)
     st.stop()  # nothing past this point runs until logged in
 
 
@@ -371,6 +433,26 @@ if view == "Overview":
 
     if "token" not in st.session_state:  # a 401 forced a logout mid-load
         st.rerun()
+
+    # A brand-new workspace has no transactions yet: guide the user instead of showing errors.
+    empty_account = False
+    if cashflow and not cashflow.get("inflows") and not cashflow.get("outflows"):
+        empty_account = True
+    elif cf_err or rw_err or fc_err or rk_err:
+        txns, tx_err = get("/api/transactions")
+        empty_account = tx_err is None and txns == []
+
+    if empty_account:
+        with st.container(border=True):
+            panel_header(
+                "Your workspace is ready",
+                "Add your first transactions to see cash flow, runway and forecasts here.",
+            )
+            if is_demo:
+                st.caption("This demo account has no data yet.")
+            else:
+                st.button("Import transactions", type="primary", on_click=_go_import)
+        st.stop()  # the other views only render when selected, so nothing is skipped
 
     if rw_err:
         st.error(f"Couldn't load runway: {rw_err}")
