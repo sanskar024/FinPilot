@@ -27,7 +27,7 @@ app.use("/api/cfo", authenticate, cfoRouter);
 const PORT = process.env.PORT || 4000;
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`FinPilot Node API listening on port ${PORT}`));
+    app.listen(PORT, "0.0.0.0", () => console.log(`FinPilot Node API listening on port ${PORT}`));
 }
 
 module.exports = app;

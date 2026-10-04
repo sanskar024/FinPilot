@@ -1,0 +1,10 @@
+[33mcommit e98b389f1a4a3edba32fe6dbe2061b562837d33c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: sanskar024 <sanskargupta008009@gmail.com>
+Date:   Sun Oct 4 22:49:02 2026 +0530
+
+    added bypass for jwt secret in .env file
+
+ dashboard/streamlit_app.py      | 679 [32m+++++++++++++++++++++++++++[m[31m-------------[m
+ node-api/node                   |   0
+ node-api/scripts/check_login.js |  11 [32m+[m
+ 3 files changed, 476 insertions(+), 214 deletions(-)
