@@ -16,9 +16,24 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:800
 
 function forwardError(res, err) {
   if (err.response) {
-    return res.status(err.response.status).json(err.response.data);
+    const status = err.response.status;
+    const retryAfter = err.response.headers?.["retry-after"];
+
+    // The status comes from FastAPI (or its upstream), not this proxy.
+    // Log enough context to identify the failing upstream without logging
+    // request credentials or organization data.
+    console.error("[CFO proxy] Agent service request failed", {
+      status,
+      url: err.config?.url,
+      retryAfter: retryAfter || null,
+    });
+
+    if (status === 429 && retryAfter) {
+      res.set("Retry-After", retryAfter);
+    }
+    return res.status(status).json(err.response.data);
   }
-  console.error(err.message);
+  console.error("[CFO proxy] Agent service is unreachable:", err.message);
   return res.status(502).json({ error: "Agent service is unreachable" });
 }
 
