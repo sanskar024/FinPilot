@@ -59,14 +59,47 @@ def _force_logout(message):
     st.session_state["logout_message"] = message
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_get(path, token):
+    """Cache successful dashboard GETs briefly to avoid duplicate API work on reruns."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    resp = requests.get(
+        f"{NODE_API_URL}{path}",
+        headers=headers,
+        timeout=60,
+    )
+    # Exceptions are not cached, so a 429/5xx can recover on the next rerun.
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get(path, params=None):
     try:
-        resp = requests.get(f"{NODE_API_URL}{path}", params=params, headers=auth_headers(), timeout=60)
-        if resp.status_code == 401:
+        token = st.session_state.get("token")
+        # Keep optional query params uncached until a caller needs them.
+        if params:
+            resp = requests.get(
+                f"{NODE_API_URL}{path}",
+                params=params,
+                headers=auth_headers(),
+                timeout=60,
+            )
+            if resp.status_code == 401:
+                _force_logout("Your session has expired — please log in again.")
+                st.rerun()
+            resp.raise_for_status()
+            return resp.json(), None
+
+        return _cached_get(path, token), None
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 401:
             _force_logout("Your session has expired — please log in again.")
             st.rerun()
-        resp.raise_for_status()
-        return resp.json(), None
+        if e.response is not None and e.response.status_code == 429:
+            retry_after = e.response.headers.get("Retry-After")
+            suffix = f" Retry after {retry_after} seconds." if retry_after and retry_after.isdigit() else " Please wait briefly before retrying."
+            return None, f"API rate limit reached (HTTP 429).{suffix}"
+        return None, str(e)
     except requests.exceptions.RequestException as e:
         return None, str(e)
 
